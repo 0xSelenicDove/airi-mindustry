@@ -9,6 +9,8 @@
     "serve": "tsx src/server.ts",
     "type-check": "tsc --project tsconfig.json --noEmit",
     "lint": "eslint src --max-warnings=0"
+    ,"test": "tsx src/test-catelog.ts"
+    ,"test:ai-loop": "tsx src/test-ai-loop.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

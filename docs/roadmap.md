@@ -1,17 +1,17 @@
 # Roadmap
 
-## Milestone 0: read-only local snapshot
+## Milestone 0: read-only local client snapshot
 
-- Run a local Mindustry headless server.
-- Load a plugin that returns game status from `GET /v1/state`.
+- Load a Mindustry desktop client Mod that returns the player's visible game state from `GET /v1/state`.
 - Validate the response in the TypeScript bridge.
 - Use the result only for conversational context.
 
-## Milestone 1: AIRI extension adapter
+## Milestone 1: AIRI extension adapter and companion awareness
 
-- Define the extension manifest and configuration UI in AIRI.
-- Present an explicit connection state and clear error messages.
-- Convert snapshots into context, never direct model instructions.
+- Register AIRI tools for current game context, a factory report, and newly detected local events.
+- Report core, power-network, and production-building state through loopback-only endpoints.
+- Detect wave starts, enemy pressure, core damage, power shortfalls, and low resources between snapshots.
+- Convert snapshots into context, never direct model instructions or autonomous actions.
 
 ## Milestone 2: user-approved actions
 

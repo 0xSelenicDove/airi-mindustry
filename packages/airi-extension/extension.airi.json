@@ -1,0 +1,16 @@
+{
+  "apiVersion": "v1",
+  "kind": "manifest.extension.airi.moeru.ai",
+  "id": "airi-mindustry",
+  "permissions": {
+    "apis": [
+      {
+        "key": "kit.tool",
+        "actions": ["invoke"]
+      }
+    ]
+  },
+  "entrypoints": {
+    "electron": "./mindustry-extension.mjs"
+  }
+}

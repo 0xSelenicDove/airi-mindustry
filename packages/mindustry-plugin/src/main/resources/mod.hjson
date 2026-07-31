@@ -1,5 +1,7 @@
 name: airi-mindustry
 author: 0xSelenicDove
-description: Local read-only Mindustry state bridge for Project AIRI.
+description: Local read-only client-game state bridge for Project AIRI.
 version: 0.1.0
+minGameVersion: 159
 main: dev.airi.mindustry.AiriMindustryPlugin
+java: true

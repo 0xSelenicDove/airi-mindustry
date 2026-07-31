@@ -1,41 +1,55 @@
-/** A validated, read-only snapshot returned by the local Mindustry plugin. */
+/** A validated, aggregate-only snapshot returned by the local Mindustry plugin. */
 export interface GameSnapshot {
-  /** Whether the server is currently hosting a game. */
+  schemaVersion: 2
+  /** Unique within the running client; actions must refer to this value. */
+  snapshotId: string
+  /** Authoritative Mindustry simulation tick at capture time. */
+  gameTick: number
   gameRunning: boolean
-  /** Name of the active map, if the server has loaded one. */
   mapName: string | null
-  /** Current survival wave number. */
-  wave: number
-  /** Remaining time before the next wave, in game ticks. */
-  waveTime: number
-  /** Players connected to the local server. */
-  playerCount: number
-  /** Names of the players currently connected to the local server. */
-  players: string[]
-  /** Units currently tracked by the server. */
-  unitCount: number
-  /** Units whose team differs from the default player team. */
-  enemyUnitCount: number
-  /** Shared default-team core state, if the team still has a core. */
+  wave: WaveSnapshot
+  players: PlayerSummary
+  units: UnitSummary
   core: CoreSnapshot | null
+  power: PowerSnapshot
+  factories: FactoryEntry[]
+  resources: ResourceSummary
+  /** Bounded coarse aggregates, never raw map tiles or building coordinates. */
+  zones: ZoneSummary[]
+  alerts: GameAlert[]
 }
 
-/** Resources held in the default team's shared core inventory. */
-export interface InventoryEntry {
-  /** Mindustry item identifier, such as `copper`. */
-  name: string
-  /** Number of units stored in the core. */
-  amount: number
+export interface WaveSnapshot {
+  number: number
+  timeRemainingTicks: number
 }
 
-/** Health and storage state for AIRI's local player team. */
-export interface CoreSnapshot {
-  /** Current core health. */
-  health: number
-  /** Core health at full integrity. */
-  maxHealth: number
-  /** Non-empty items stored in the shared core inventory. */
-  inventory: InventoryEntry[]
+export interface PlayerSummary { count: number }
+export interface UnitSummary { friendly: number, enemy: number }
+
+export interface InventoryEntry { name: string, amount: number }
+export interface CoreSnapshot { health: number, maxHealth: number, inventory: InventoryEntry[] }
+export interface PowerSnapshot { networkCount: number, produced: number, needed: number, stored: number, capacity: number }
+export interface FactoryEntry { name: string, count: number }
+export interface CriticalResource { item: string, amount: number, threshold: number }
+export interface ResourceSummary { critical: CriticalResource[] }
+
+export interface ZoneSummary {
+  id: string
+  role: 'core' | 'defense' | 'production' | 'mixed' | 'infrastructure'
+  buildingCount: number
+  defenseCount: number
+  productionCount: number
+  damagedBuildingCount: number
+  enemyUnitCount: number
+  priority: number
+}
+
+export interface GameAlert {
+  kind: 'power-shortage' | 'core-health-low' | 'defense-exposed' | 'buildings-damaged'
+  severity: 'warning' | 'critical'
+  message: string
+  zoneId?: string
 }
 
 const stateUrl = process.env.MINDUSTRY_STATE_URL ?? 'http://127.0.0.1:18231/v1/state'
@@ -53,50 +67,67 @@ function parseGameSnapshot(value: unknown): GameSnapshot {
   if (!isRecord(value))
     throw new TypeError('Mindustry state bridge returned a non-object JSON value.')
 
-  const { gameRunning, mapName, wave, waveTime, playerCount, players, unitCount, enemyUnitCount, core } = value
+  const { schemaVersion, snapshotId, gameTick, gameRunning, mapName, wave, players, units, core, power, factories, resources, zones, alerts } = value
   if (
-    typeof gameRunning !== 'boolean'
+    schemaVersion !== 2
+    || typeof snapshotId !== 'string'
+    || !isNonNegativeFiniteNumber(gameTick)
+    || typeof gameRunning !== 'boolean'
     || (mapName !== null && typeof mapName !== 'string')
-    || !isNonNegativeFiniteNumber(wave)
-    || !isNonNegativeFiniteNumber(waveTime)
-    || !isNonNegativeFiniteNumber(playerCount)
-    || !isStringArray(players)
-    || players.length !== playerCount
-    || !isNonNegativeFiniteNumber(unitCount)
-    || !isNonNegativeFiniteNumber(enemyUnitCount)
+    || !isWaveSnapshot(wave)
+    || !isPlayerSummary(players)
+    || !isUnitSummary(units)
     || !isCoreSnapshot(core)
-  ) {
-    throw new TypeError('Mindustry state bridge returned an invalid game snapshot.')
-  }
+    || !isPowerSnapshot(power)
+    || !isFactoryEntries(factories)
+    || !isResourceSummary(resources)
+    || !isZoneSummaries(zones)
+    || !isGameAlerts(alerts)
+  ) throw new TypeError('Mindustry state bridge returned an invalid v2 game snapshot.')
 
-  return { gameRunning, mapName, wave, waveTime, playerCount, players, unitCount, enemyUnitCount, core }
+  return { schemaVersion, snapshotId, gameTick, gameRunning, mapName, wave, players, units, core, power, factories, resources, zones, alerts }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null }
+function isNonNegativeFiniteNumber(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value) && value >= 0 }
+function isString(value: unknown): value is string { return typeof value === 'string' }
+function isWaveSnapshot(value: unknown): value is WaveSnapshot {
+  return isRecord(value) && isNonNegativeFiniteNumber(value.number) && isNonNegativeFiniteNumber(value.timeRemainingTicks)
 }
-
-function isNonNegativeFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+function isPlayerSummary(value: unknown): value is PlayerSummary { return isRecord(value) && isNonNegativeFiniteNumber(value.count) }
+function isUnitSummary(value: unknown): value is UnitSummary {
+  return isRecord(value) && isNonNegativeFiniteNumber(value.friendly) && isNonNegativeFiniteNumber(value.enemy)
 }
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(entry => typeof entry === 'string')
-}
-
 function isCoreSnapshot(value: unknown): value is CoreSnapshot | null {
-  if (value === null)
-    return true
-  if (!isRecord(value))
-    return false
-
-  return isNonNegativeFiniteNumber(value.health)
-    && isNonNegativeFiniteNumber(value.maxHealth)
-    && value.maxHealth > 0
-    && Array.isArray(value.inventory)
-    && value.inventory.every(isInventoryEntry)
+  return value === null || (isRecord(value) && isNonNegativeFiniteNumber(value.health) && isNonNegativeFiniteNumber(value.maxHealth)
+    && value.maxHealth > 0 && Array.isArray(value.inventory) && value.inventory.every(isInventoryEntry))
 }
-
 function isInventoryEntry(value: unknown): value is InventoryEntry {
-  return isRecord(value) && typeof value.name === 'string' && isNonNegativeFiniteNumber(value.amount)
+  return isRecord(value) && isString(value.name) && isNonNegativeFiniteNumber(value.amount)
+}
+function isPowerSnapshot(value: unknown): value is PowerSnapshot {
+  return isRecord(value) && isNonNegativeFiniteNumber(value.networkCount) && isNonNegativeFiniteNumber(value.produced)
+    && isNonNegativeFiniteNumber(value.needed) && isNonNegativeFiniteNumber(value.stored) && isNonNegativeFiniteNumber(value.capacity)
+}
+function isFactoryEntries(value: unknown): value is FactoryEntry[] {
+  return Array.isArray(value) && value.every(entry => isRecord(entry) && isString(entry.name) && isNonNegativeFiniteNumber(entry.count))
+}
+function isResourceSummary(value: unknown): value is ResourceSummary {
+  return isRecord(value) && Array.isArray(value.critical) && value.critical.every(entry => isRecord(entry)
+    && isString(entry.item) && isNonNegativeFiniteNumber(entry.amount) && isNonNegativeFiniteNumber(entry.threshold))
+}
+function isZoneSummaries(value: unknown): value is ZoneSummary[] {
+  const roles = ['core', 'defense', 'production', 'mixed', 'infrastructure']
+  return Array.isArray(value) && value.length <= 12 && value.every(zone => isRecord(zone)
+    && isString(zone.id) && isString(zone.role) && roles.includes(zone.role)
+    && isNonNegativeFiniteNumber(zone.buildingCount) && isNonNegativeFiniteNumber(zone.defenseCount)
+    && isNonNegativeFiniteNumber(zone.productionCount) && isNonNegativeFiniteNumber(zone.damagedBuildingCount)
+    && isNonNegativeFiniteNumber(zone.enemyUnitCount) && isNonNegativeFiniteNumber(zone.priority))
+}
+function isGameAlerts(value: unknown): value is GameAlert[] {
+  const kinds = ['power-shortage', 'core-health-low', 'defense-exposed', 'buildings-damaged']
+  const severities = ['warning', 'critical']
+  return Array.isArray(value) && value.every(alert => isRecord(alert) && isString(alert.kind) && kinds.includes(alert.kind)
+    && isString(alert.severity) && severities.includes(alert.severity) && isString(alert.message)
+    && (alert.zoneId === undefined || isString(alert.zoneId)))
 }

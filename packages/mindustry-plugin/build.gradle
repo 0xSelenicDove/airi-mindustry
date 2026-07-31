@@ -27,8 +27,14 @@ java {
 
 dependencies {
     compileOnly 'Anuken:Mindustry:v159.7'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.0'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.0'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
 }
 
 jar {
-    archiveFileName = 'airi-mindustry-plugin.jar'
+    archiveFileName = 'airi-mindustry-mod.jar'
 }

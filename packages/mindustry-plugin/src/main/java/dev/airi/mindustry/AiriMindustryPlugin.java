@@ -1,38 +1,50 @@
 package dev.airi.mindustry;
 
 import arc.util.Log;
+import arc.Core;
+import mindustry.game.EventType.Trigger;
+import arc.Events;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import mindustry.Vars;
-import mindustry.game.Team;
-import mindustry.gen.Groups;
-import mindustry.mod.Plugin;
-import mindustry.type.Item;
-import mindustry.world.blocks.storage.CoreBlock.CoreBuild;
+import mindustry.mod.Mod;
+import dev.airi.mindustry.state.StateCollector;
+import dev.airi.mindustry.action.ActionRouter;
+import dev.airi.mindustry.action.BlueprintExecutor.ActionResult;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.StringJoiner;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Exposes a minimal, read-only game snapshot to a local AIRI bridge.
+ * Exposes a minimal, read-only client-game snapshot to a local AIRI bridge.
  *
- * The listener is loopback-only because a Mindustry plugin has unrestricted JVM access.
+ * The listener is loopback-only because a Mindustry JVM mod has unrestricted JVM
+ * access. Mindustry state is captured on its update thread; HTTP requests only
+ * read the immutable cached JSON snapshot and never access game state directly.
  * It exposes no game-control operations in this milestone.
  */
-public final class AiriMindustryPlugin extends Plugin {
+public final class AiriMindustryPlugin extends Mod {
     private static final int PORT = 18231;
+    private static final int MAX_ACTION_BODY_BYTES = 16 * 1024;
+    private final StateCollector stateCollector = new StateCollector();
+    private final ActionRouter actionRouter = new ActionRouter();
+    private volatile String latestStateJson = StateCollector.inactiveStateJson();
 
     @Override
     public void init() {
+        Events.run(Trigger.update, () -> latestStateJson = stateCollector.collect());
+
         try {
             final HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", PORT), 0);
             server.createContext("/v1/state", this::handleState);
+            server.createContext("/v1/action/submit", this::handleActionSubmit);
             server.setExecutor(Executors.newSingleThreadExecutor());
             server.start();
-            Log.info("AIRI Mindustry state bridge listening at http://127.0.0.1:@", PORT);
+            Log.info("AIRI Mindustry client bridge listening at http://127.0.0.1:@", PORT);
         }
         catch (IOException error) {
             Log.err("Unable to start AIRI Mindustry state bridge.", error);
@@ -46,19 +58,7 @@ public final class AiriMindustryPlugin extends Plugin {
             return;
         }
 
-        final String response = String.format(
-            "{\"gameRunning\":%s,\"mapName\":%s,\"wave\":%d,\"waveTime\":%.2f,\"playerCount\":%d,\"players\":%s,\"unitCount\":%d,\"enemyUnitCount\":%d,\"core\":%s}",
-            Vars.state.isGame(),
-            mapNameJson(),
-            Vars.state.wave,
-            Vars.state.wavetime,
-            Groups.player.size(),
-            playerNamesJson(),
-            Groups.unit.size(),
-            countEnemyUnits(Vars.state.rules.defaultTeam),
-            coreJson(Vars.state.rules.defaultTeam)
-        );
-        final byte[] body = response.getBytes(StandardCharsets.UTF_8);
+        final byte[] body = latestStateJson.getBytes(StandardCharsets.UTF_8);
 
         exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
         exchange.sendResponseHeaders(200, body.length);
@@ -66,82 +66,64 @@ public final class AiriMindustryPlugin extends Plugin {
         exchange.close();
     }
 
-    private String playerNamesJson() {
-        final StringJoiner names = new StringJoiner(",", "[", "]");
-        Groups.player.each(player -> names.add("\"" + escapeJson(player.name) + "\""));
-        return names.toString();
-    }
-
-    private String mapNameJson() {
-        if (Vars.state.map == null)
-            return "null";
-
-        return "\"" + escapeJson(Vars.state.map.plainName()) + "\"";
-    }
-
-    private int countEnemyUnits(Team playerTeam) {
-        final int[] enemyCount = { 0 };
-        Groups.unit.each(unit -> {
-            if (unit.team != playerTeam)
-                enemyCount[0]++;
-        });
-        return enemyCount[0];
-    }
-
-    private String coreJson(Team playerTeam) {
-        final CoreBuild core = playerTeam.core();
-        if (core == null)
-            return "null";
-
-        final StringJoiner inventory = new StringJoiner(",", "[", "]");
-        for (Item item : Vars.content.items()) {
-            final int amount = core.items.get(item);
-            if (amount > 0) {
-                inventory.add(String.format(
-                    "{\"name\":\"%s\",\"amount\":%d}",
-                    escapeJson(item.name),
-                    amount
-                ));
-            }
-        }
-
-        return String.format(
-            "{\"health\":%.2f,\"maxHealth\":%.2f,\"inventory\":%s}",
-            core.health,
-            core.maxHealth,
-            inventory
-        );
-    }
-
     /**
-     * Escapes player-provided text before embedding it in the JSON response.
-     *
-     * Before:
-     * - A name containing a quote or newline
-     *
-     * After:
-     * - A valid JSON string value
+     * Handles the one explicit, confirmed action supported by this milestone.
+     * Parsing is done on the HTTP thread; all game-state access and execution
+     * are posted to the Mindustry update thread.
      */
-    private String escapeJson(String value) {
-        final StringBuilder escaped = new StringBuilder();
-        for (int index = 0; index < value.length(); index++) {
-            final char character = value.charAt(index);
-            switch (character) {
-                case '"' -> escaped.append("\\\"");
-                case '\\' -> escaped.append("\\\\");
-                case '\b' -> escaped.append("\\b");
-                case '\f' -> escaped.append("\\f");
-                case '\n' -> escaped.append("\\n");
-                case '\r' -> escaped.append("\\r");
-                case '\t' -> escaped.append("\\t");
-                default -> {
-                    if (character < 0x20)
-                        escaped.append(String.format("\\u%04x", (int) character));
-                    else
-                        escaped.append(character);
-                }
+    private void handleActionSubmit(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            exchange.getResponseHeaders().set("Allow", "POST");
+            exchange.sendResponseHeaders(405, -1);
+            return;
+        }
+        final byte[] body = exchange.getRequestBody().readNBytes(MAX_ACTION_BODY_BYTES + 1);
+        if (body.length > MAX_ACTION_BODY_BYTES) {
+            sendActionResponse(exchange, new ActionResult("rejected", "REQUEST_TOO_LARGE", "Action request body exceeds 16 KiB.", null, null));
+            return;
+        }
+
+        final AtomicReference<ActionResult> result = new AtomicReference<>();
+        final CountDownLatch complete = new CountDownLatch(1);
+        Core.app.post(() -> {
+            try {
+                result.set(actionRouter.submit(new String(body, StandardCharsets.UTF_8)));
+            }
+            finally {
+                complete.countDown();
+            }
+        });
+        try {
+            if (!complete.await(2, TimeUnit.SECONDS)) {
+                sendActionResponse(exchange, new ActionResult("rejected", "GAME_THREAD_TIMEOUT", "The game did not process the action in time.", null, null));
+                return;
             }
         }
-        return escaped.toString();
+        catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            sendActionResponse(exchange, new ActionResult("rejected", "REQUEST_INTERRUPTED", "Action request was interrupted.", null, null));
+            return;
+        }
+        sendActionResponse(exchange, result.get());
     }
+
+    private void sendActionResponse(HttpExchange exchange, ActionResult result) throws IOException {
+        final String target = result.targetX() == null
+            ? ""
+            : String.format(",\"resolvedTarget\":{\"x\":%d,\"y\":%d}", result.targetX(), result.targetY());
+        final String json = String.format(
+            "{\"status\":\"%s\",\"reasonCode\":\"%s\",\"message\":\"%s\"%s}",
+            escapeJson(result.status()), escapeJson(result.reasonCode()), escapeJson(result.message()), target
+        );
+        final byte[] body = json.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.sendResponseHeaders(200, body.length);
+        exchange.getResponseBody().write(body);
+        exchange.close();
+    }
+
+    private static String escapeJson(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+    }
+
 }
