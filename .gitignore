@@ -1,0 +1,6 @@
+.gradle/
+.local/
+build/
+dist/
+node_modules/
+.env

@@ -1,0 +1,34 @@
+plugins {
+    id 'java'
+}
+
+group = 'dev.airi'
+version = '0.1.0'
+
+repositories {
+    mavenCentral()
+
+    // Mindustry publishes its plugin dependency as a release artifact.
+    ivy {
+        url = 'https://github.com/'
+        patternLayout {
+            artifact '/[organisation]/[module]/releases/download/[revision]/dependencies.jar'
+        }
+        metadataSources {
+            artifact()
+        }
+    }
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+dependencies {
+    compileOnly 'Anuken:Mindustry:v159.7'
+}
+
+jar {
+    archiveFileName = 'airi-mindustry-plugin.jar'
+}

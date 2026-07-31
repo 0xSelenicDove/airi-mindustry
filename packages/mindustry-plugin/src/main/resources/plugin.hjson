@@ -1,0 +1,5 @@
+name: airi-mindustry
+author: 0xSelenicDove
+description: Local read-only Mindustry state bridge for Project AIRI.
+version: 0.1.0
+main: dev.airi.mindustry.AiriMindustryPlugin

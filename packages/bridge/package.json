@@ -1,0 +1,20 @@
+{
+  "name": "@airi-mindustry/bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "serve": "tsx src/server.ts",
+    "type-check": "tsc --project tsconfig.json --noEmit",
+    "lint": "eslint src --max-warnings=0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "eslint": "^9.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}
