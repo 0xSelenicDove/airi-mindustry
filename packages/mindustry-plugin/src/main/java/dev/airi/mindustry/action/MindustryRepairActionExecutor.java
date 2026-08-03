@@ -6,19 +6,23 @@ import dev.airi.mindustry.companion.gateway.MindustryRepairWorld;
 import dev.airi.mindustry.companion.gateway.RepairGatewayResult;
 import dev.airi.mindustry.companion.gateway.RepairZoneCommand;
 import dev.airi.mindustry.companion.status.RepairStatusBridge;
+import dev.airi.mindustry.action.safety.ActionSafetyGateway;
 
 import java.util.HashMap;
 import java.util.Map;
 
 /** Converts the public REPAIR_ZONE action into a host-owned Poly task. */
 final class MindustryRepairActionExecutor implements RepairActionExecutor {
-    private final HostRepairGateway gateway = new HostRepairGateway(new MindustryRepairWorld());
+    private final MindustryRepairWorld repairWorld = new MindustryRepairWorld();
+    private final HostRepairGateway gateway = new HostRepairGateway(repairWorld);
     private final Map<String, BlueprintExecutor.ActionResult> idempotentResults = new HashMap<>();
     private final Map<String, Long> activeTaskTicks = new HashMap<>();
+    private final Map<String, String> lastTaskStatuses = new HashMap<>();
 
     @Override
     public BlueprintExecutor.ActionResult submit(final int polyId, final int buildingId, final long refTick,
         final boolean confirmed, final String idempotencyKey) {
+        ActionSafetyGateway.ensureLiveSession(repairWorld.isHostAuthoritative());
         if (!idempotencyKey.isBlank() && idempotentResults.containsKey(idempotencyKey)) {
             return idempotentResults.get(idempotencyKey);
         }
@@ -27,6 +31,11 @@ final class MindustryRepairActionExecutor implements RepairActionExecutor {
         if (result.taskId() != null) {
             activeTaskTicks.put(result.taskId(), refTick);
             RepairStatusBridge.observe(result.taskId(), result.status(), refTick, result.message());
+            ActionSafetyGateway.startTask(result.taskId(), "REPAIR_ZONE", refTick, true, () -> {
+                final RepairGatewayResult cancelled = gateway.cancel(result.taskId(), refTick);
+                RepairStatusBridge.observe(result.taskId(), cancelled.status(), refTick, cancelled.message());
+            });
+            lastTaskStatuses.put(result.taskId(), result.status().name());
             if (!idempotencyKey.isBlank()) idempotentResults.put(idempotencyKey, actionResult);
         }
         return actionResult;
@@ -37,6 +46,10 @@ final class MindustryRepairActionExecutor implements RepairActionExecutor {
         for (String taskId : activeTaskTicks.keySet()) {
             final RepairGatewayResult result = gateway.status(taskId);
             RepairStatusBridge.observe(taskId, result.status(), currentTick, result.message());
+            if (!result.status().name().equals(lastTaskStatuses.get(taskId))) {
+                ActionSafetyGateway.recordLifecycle(taskId, "REPAIR_ZONE", currentTick, result.status().name(), result.status().name());
+                lastTaskStatuses.put(taskId, result.status().name());
+            }
         }
     }
 

@@ -65,7 +65,7 @@ jobs:
       - name: Test and build plugin
         run: >-
           gradle -p packages/mindustry-plugin
-          test tddTest gatewayTddTest repairActionTddTest repairStatusTddTest jar
+          test tddTest gatewayTddTest repairActionTddTest repairStatusTddTest actionSafetyTddTest jar
       - name: Upload mod JAR
         uses: actions/upload-artifact@v4
         with:

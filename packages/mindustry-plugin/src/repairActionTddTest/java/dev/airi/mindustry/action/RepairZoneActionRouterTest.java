@@ -1,6 +1,8 @@
 package dev.airi.mindustry.action;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import dev.airi.mindustry.action.safety.ActionSafetyGateway;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -9,6 +11,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * method mirrors one player-visible routing/preflight outcome.
  */
 final class RepairZoneActionRouterTest {
+    @BeforeEach
+    void resetActionSafetySession() { ActionSafetyGateway.beginSession(true, 2); }
+
     @Test
     void unconfirmedRepairReturnsConfirmationRequired() {
         assertReason("CONFIRMATION_REQUIRED", routerFor(100, "confirmation-required", "CONFIRMATION_REQUIRED"), request(100, false, 7, 11));

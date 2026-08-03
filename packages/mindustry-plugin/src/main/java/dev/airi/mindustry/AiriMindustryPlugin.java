@@ -11,6 +11,7 @@ import dev.airi.mindustry.state.StateCollector;
 import dev.airi.mindustry.action.ActionRouter;
 import dev.airi.mindustry.action.BlueprintExecutor.ActionResult;
 import dev.airi.mindustry.companion.status.RepairTaskStatusEndpoint;
+import dev.airi.mindustry.action.safety.ActionSafetyGateway;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -47,6 +48,8 @@ public final class AiriMindustryPlugin extends Mod {
             server.createContext("/v1/state", this::handleState);
             server.createContext("/v1/action/submit", this::handleActionSubmit);
             server.createContext("/v1/repair/tasks", this::handleRepairTaskStatus);
+            server.createContext("/v1/action/stop", this::handleActionStop);
+            server.createContext("/v1/audit", this::handleAudit);
             server.setExecutor(Executors.newSingleThreadExecutor());
             server.start();
             Log.info("AIRI Mindustry client bridge listening at http://127.0.0.1:@", PORT);
@@ -130,6 +133,72 @@ public final class AiriMindustryPlugin extends Mod {
         exchange.close();
     }
 
+    private void handleActionStop(HttpExchange exchange) throws IOException {
+        if (!"POST".equals(exchange.getRequestMethod())) {
+            exchange.getResponseHeaders().set("Allow", "POST");
+            exchange.sendResponseHeaders(405, -1);
+            return;
+        }
+        final AtomicReference<ActionSafetyGateway.StopReply> result = new AtomicReference<>();
+        final CountDownLatch complete = new CountDownLatch(1);
+        Core.app.post(() -> {
+            try { result.set(ActionSafetyGateway.stop((long) mindustry.Vars.state.tick)); }
+            finally { complete.countDown(); }
+        });
+        try {
+            if (!complete.await(2, TimeUnit.SECONDS)) {
+                sendSafetyJson(exchange, 503, "GAME_THREAD_TIMEOUT", java.util.List.of(), 0);
+                return;
+            }
+        }
+        catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            sendSafetyJson(exchange, 503, "REQUEST_INTERRUPTED", java.util.List.of(), 0);
+            return;
+        }
+        final ActionSafetyGateway.StopReply stopped = result.get();
+        sendSafetyJson(exchange, "accepted".equals(stopped.status()) ? 200 : 409,
+            "accepted".equals(stopped.status()) ? "ACCEPTED" : "UNSUPPORTED_SESSION", stopped.stoppedTaskIds(), 0);
+    }
+
+    private void handleAudit(HttpExchange exchange) throws IOException {
+        if (!"GET".equals(exchange.getRequestMethod())) {
+            exchange.getResponseHeaders().set("Allow", "GET");
+            exchange.sendResponseHeaders(405, -1);
+            return;
+        }
+        final ActionSafetyGateway.HttpReply reply = ActionSafetyGateway.handleHttp("GET", exchange.getRequestURI().toString());
+        sendAuditJson(exchange, reply.httpStatus(), reply.reasonCode(),
+            ActionSafetyGateway.audit(queryLong(exchange.getRequestURI().getQuery(), "before", Long.MAX_VALUE), reply.pageSize()), reply.pageSize());
+    }
+
+    private void sendSafetyJson(HttpExchange exchange, int status, String reasonCode, java.util.List<String> taskIds, int pageSize) throws IOException {
+        final String ids = taskIds.stream().map(id -> "\"" + escapeJson(id) + "\"").collect(java.util.stream.Collectors.joining(","));
+        final String json = String.format("{\"status\":\"%s\",\"reasonCode\":\"%s\",\"stoppedTaskIds\":[%s],\"count\":%d,\"pageSize\":%d}",
+            status == 200 ? "accepted" : "rejected", escapeJson(reasonCode), ids, taskIds.size(), pageSize);
+        final byte[] body = json.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.sendResponseHeaders(status, body.length);
+        exchange.getResponseBody().write(body);
+        exchange.close();
+    }
+
+    private void sendAuditJson(HttpExchange exchange, int status, String reasonCode, java.util.List<ActionSafetyGateway.AuditEntry> entries,
+        int pageSize) throws IOException {
+        final String events = entries.stream().map(entry -> String.format(
+            "{\"sequence\":%d,\"actionId\":\"%s\",\"actionType\":\"%s\",\"gameTick\":%d,\"status\":\"%s\",\"reasonCode\":\"%s\",\"taskId\":%s,\"mutationPerformed\":%s,\"sessionId\":\"%s\"}",
+            entry.sequence(), escapeJson(entry.actionId()), escapeJson(entry.actionType()), entry.gameTick(), escapeJson(entry.status()),
+            escapeJson(entry.reasonCode()), nullableJson(entry.taskId()), entry.mutationPerformed(), escapeJson(entry.sessionId())))
+            .collect(java.util.stream.Collectors.joining(","));
+        final String json = String.format("{\"status\":\"%s\",\"reasonCode\":\"%s\",\"entries\":[%s],\"pageSize\":%d}",
+            status == 200 ? "accepted" : "rejected", escapeJson(reasonCode), events, pageSize);
+        final byte[] body = json.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.sendResponseHeaders(status, body.length);
+        exchange.getResponseBody().write(body);
+        exchange.close();
+    }
+
     private void sendActionResponse(HttpExchange exchange, ActionResult result) throws IOException {
         final String target = result.targetX() == null
             ? ""
@@ -154,6 +223,18 @@ public final class AiriMindustryPlugin extends Mod {
 
     private static String nullableJson(String value) {
         return value == null ? "null" : "\"" + escapeJson(value) + "\"";
+    }
+
+    private static long queryLong(String query, String name, long fallback) {
+        if (query == null) return fallback;
+        for (String pair : query.split("&")) {
+            String[] parts = pair.split("=", 2);
+            if (parts.length == 2 && name.equals(parts[0])) {
+                try { return Long.parseLong(parts[1]); }
+                catch (NumberFormatException ignored) { return fallback; }
+            }
+        }
+        return fallback;
     }
 
 }

@@ -56,6 +56,13 @@ sourceSets {
         compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
         runtimeClasspath += output + compileClasspath
     }
+    // RED contracts for emergency stop, action rate limiting, and local audit
+    // history. These are implemented only after their player-visible policy is approved.
+    actionSafetyTddTest {
+        java.srcDir 'src/actionSafetyTddTest/java'
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
 }
 
 dependencies {
@@ -104,6 +111,14 @@ tasks.register('repairStatusTddTest', Test) {
     group = 'verification'
     testClassesDirs = sourceSets.repairStatusTddTest.output.classesDirs
     classpath = sourceSets.repairStatusTddTest.runtimeClasspath
+    useJUnitPlatform()
+}
+
+tasks.register('actionSafetyTddTest', Test) {
+    description = 'Runs red emergency-stop, rate-limit, and audit-log contracts during TDD implementation.'
+    group = 'verification'
+    testClassesDirs = sourceSets.actionSafetyTddTest.output.classesDirs
+    classpath = sourceSets.actionSafetyTddTest.runtimeClasspath
     useJUnitPlatform()
 }
 
