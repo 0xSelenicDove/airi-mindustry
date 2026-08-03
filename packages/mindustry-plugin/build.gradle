@@ -47,6 +47,13 @@ sourceSets {
         compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
         runtimeClasspath += output + compileClasspath
     }
+    // RED contracts for task-status polling and bridge status events. These
+    // remain isolated until the repair-loop observability slice is built.
+    repairStatusTddTest {
+        java.srcDir 'src/repairStatusTddTest/java'
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
 }
 
 dependencies {
@@ -82,6 +89,14 @@ tasks.register('repairActionTddTest', Test) {
     group = 'verification'
     testClassesDirs = sourceSets.repairActionTddTest.output.classesDirs
     classpath = sourceSets.repairActionTddTest.runtimeClasspath
+    useJUnitPlatform()
+}
+
+tasks.register('repairStatusTddTest', Test) {
+    description = 'Runs red repair task-status endpoint and bridge-event contracts during TDD implementation.'
+    group = 'verification'
+    testClassesDirs = sourceSets.repairStatusTddTest.output.classesDirs
+    classpath = sourceSets.repairStatusTddTest.runtimeClasspath
     useJUnitPlatform()
 }
 

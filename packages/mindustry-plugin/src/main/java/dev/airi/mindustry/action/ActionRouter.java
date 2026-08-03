@@ -60,6 +60,11 @@ public final class ActionRouter {
         );
     }
 
+    /** Called on the update thread so physical Poly progress reaches the bridge without HTTP polling. */
+    public void refreshRepairStatuses(final long currentTick) {
+        repairExecutor.refresh(currentTick);
+    }
+
     private BlueprintExecutor.ActionResult submitRepair(final JsonValue value, final long refTick) {
         final JsonValue target = value.get("target");
         final JsonValue payload = value.get("payload");

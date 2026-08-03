@@ -10,6 +10,7 @@ import mindustry.mod.Mod;
 import dev.airi.mindustry.state.StateCollector;
 import dev.airi.mindustry.action.ActionRouter;
 import dev.airi.mindustry.action.BlueprintExecutor.ActionResult;
+import dev.airi.mindustry.companion.status.RepairTaskStatusEndpoint;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -36,12 +37,16 @@ public final class AiriMindustryPlugin extends Mod {
 
     @Override
     public void init() {
-        Events.run(Trigger.update, () -> latestStateJson = stateCollector.collect());
+        Events.run(Trigger.update, () -> {
+            latestStateJson = stateCollector.collect();
+            actionRouter.refreshRepairStatuses((long) mindustry.Vars.state.tick);
+        });
 
         try {
             final HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", PORT), 0);
             server.createContext("/v1/state", this::handleState);
             server.createContext("/v1/action/submit", this::handleActionSubmit);
+            server.createContext("/v1/repair/tasks", this::handleRepairTaskStatus);
             server.setExecutor(Executors.newSingleThreadExecutor());
             server.start();
             Log.info("AIRI Mindustry client bridge listening at http://127.0.0.1:@", PORT);
@@ -107,6 +112,24 @@ public final class AiriMindustryPlugin extends Mod {
         sendActionResponse(exchange, result.get());
     }
 
+    private void handleRepairTaskStatus(HttpExchange exchange) throws IOException {
+        final String prefix = "/v1/repair/tasks/";
+        final String path = exchange.getRequestURI().getPath();
+        final String taskId = path.startsWith(prefix) ? path.substring(prefix.length()) : "";
+        final RepairTaskStatusEndpoint.StatusReply result = RepairTaskStatusEndpoint.handle(exchange.getRequestMethod(), taskId);
+        if (!"GET".equals(exchange.getRequestMethod())) exchange.getResponseHeaders().set("Allow", "GET");
+        final String json = String.format(
+            "{\"status\":\"%s\",\"reasonCode\":\"%s\",\"taskId\":%s,\"taskStatus\":%s,\"message\":\"%s\",\"gameTick\":%d,\"airiControlReleased\":%s}",
+            escapeJson(result.httpStatus() == 200 ? "accepted" : "rejected"), escapeJson(result.reasonCode()),
+            nullableJson(result.taskId()), nullableJson(result.taskStatus() == null ? null : result.taskStatus().name()),
+            escapeJson(result.message()), result.gameTick(), result.airiControlReleased());
+        final byte[] body = json.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.sendResponseHeaders(result.httpStatus(), body.length);
+        exchange.getResponseBody().write(body);
+        exchange.close();
+    }
+
     private void sendActionResponse(HttpExchange exchange, ActionResult result) throws IOException {
         final String target = result.targetX() == null
             ? ""
@@ -127,6 +150,10 @@ public final class AiriMindustryPlugin extends Mod {
 
     private static String escapeJson(String value) {
         return value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+    }
+
+    private static String nullableJson(String value) {
+        return value == null ? "null" : "\"" + escapeJson(value) + "\"";
     }
 
 }

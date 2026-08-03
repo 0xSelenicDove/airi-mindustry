@@ -5,6 +5,7 @@ import dev.airi.mindustry.companion.gateway.HostRepairGateway;
 import dev.airi.mindustry.companion.gateway.MindustryRepairWorld;
 import dev.airi.mindustry.companion.gateway.RepairGatewayResult;
 import dev.airi.mindustry.companion.gateway.RepairZoneCommand;
+import dev.airi.mindustry.companion.status.RepairStatusBridge;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -13,6 +14,7 @@ import java.util.Map;
 final class MindustryRepairActionExecutor implements RepairActionExecutor {
     private final HostRepairGateway gateway = new HostRepairGateway(new MindustryRepairWorld());
     private final Map<String, BlueprintExecutor.ActionResult> idempotentResults = new HashMap<>();
+    private final Map<String, Long> activeTaskTicks = new HashMap<>();
 
     @Override
     public BlueprintExecutor.ActionResult submit(final int polyId, final int buildingId, final long refTick,
@@ -22,8 +24,20 @@ final class MindustryRepairActionExecutor implements RepairActionExecutor {
         }
         final RepairGatewayResult result = gateway.submit(new RepairZoneCommand(polyId, buildingId, refTick, confirmed));
         final BlueprintExecutor.ActionResult actionResult = toActionResult(result, refTick);
-        if (!idempotencyKey.isBlank() && result.taskId() != null) idempotentResults.put(idempotencyKey, actionResult);
+        if (result.taskId() != null) {
+            activeTaskTicks.put(result.taskId(), refTick);
+            RepairStatusBridge.observe(result.taskId(), result.status(), refTick, result.message());
+            if (!idempotencyKey.isBlank()) idempotentResults.put(idempotencyKey, actionResult);
+        }
         return actionResult;
+    }
+
+    @Override
+    public void refresh(final long currentTick) {
+        for (String taskId : activeTaskTicks.keySet()) {
+            final RepairGatewayResult result = gateway.status(taskId);
+            RepairStatusBridge.observe(taskId, result.status(), currentTick, result.message());
+        }
     }
 
     private static BlueprintExecutor.ActionResult toActionResult(final RepairGatewayResult result, final long acceptedAtTick) {
