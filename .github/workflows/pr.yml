@@ -23,8 +23,20 @@ jobs:
         run: git diff --check ${{ github.event.pull_request.base.sha }}...HEAD
 
   bridge:
-    name: Bridge quality
+    name: Bridge ${{ matrix.check.name }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check:
+          - name: lint
+            command: pnpm lint
+          - name: type-check
+            command: pnpm type-check
+          - name: build
+            command: pnpm build
+          - name: deterministic tests
+            command: pnpm --dir packages/bridge test
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -37,14 +49,8 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Lint
-        run: pnpm lint
-      - name: Type-check
-        run: pnpm type-check
-      - name: Build
-        run: pnpm build
-      - name: Run deterministic bridge tests
-        run: pnpm --dir packages/bridge test
+      - name: Run ${{ matrix.check.name }}
+        run: ${{ matrix.check.command }}
 
   mindustry-plugin:
     name: Mindustry plugin tests
