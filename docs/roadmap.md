@@ -15,9 +15,11 @@
 
 ## Milestone 2: user-approved actions
 
-- Design an allowlist of actions and a per-action confirmation flow.
-- Add rate limits, an emergency stop, and audit logging.
-- Remain local/private-server only until multi-user permissions are designed.
+- Implemented: an action allowlist and explicit confirmation flow for the vetted `PLACE_BLUEPRINT` and `REPAIR_ZONE` actions.
+- Implemented: stale-world-state rejection (180 ticks), idempotency for repair submission, and host-authoritative Poly repair control.
+- Implemented: player cancellation and manual Poly repurposing immediately release AIRI control; client-only multiplayer control is rejected.
+- Remaining: expose repair task-status polling/events to the bridge and validate the full repair flow in a live host game.
+- Remaining: add rate limits, emergency-stop/audit logging, and multi-user permissions before expanding beyond local/private-server use.
 
 ## Non-goals for the first release
 
