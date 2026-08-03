@@ -5,6 +5,7 @@
   "scripts": {
     "build": "pnpm --dir packages/bridge build",
     "type-check": "pnpm --dir packages/bridge type-check",
-    "lint": "pnpm --dir packages/bridge lint"
+    "lint": "pnpm --dir packages/bridge lint",
+    "test:airi-extension": "node --test packages/airi-extension/test/*.test.mjs"
   }
 }
