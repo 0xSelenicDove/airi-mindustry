@@ -4,6 +4,8 @@ plugins {
 
 group = 'dev.airi'
 version = '0.1.0'
+def mindustryVersion = providers.gradleProperty('mindustryVersion').getOrElse('v159.7')
+def mindustryJar = providers.gradleProperty('mindustryJar').orNull
 
 repositories {
     mavenCentral()
@@ -57,9 +59,14 @@ sourceSets {
 }
 
 dependencies {
-    compileOnly 'Anuken:Mindustry:v159.7'
-    // Action-router contracts instantiate Arc's JSON parser at test runtime.
-    testRuntimeOnly 'Anuken:Mindustry:v159.7'
+    if (mindustryJar != null) {
+        compileOnly files(mindustryJar)
+        testRuntimeOnly files(mindustryJar)
+    } else {
+        compileOnly "Anuken:Mindustry:${mindustryVersion}"
+        // Action-router contracts instantiate Arc's JSON parser at test runtime.
+        testRuntimeOnly "Anuken:Mindustry:${mindustryVersion}"
+    }
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.0'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.0'
 }
