@@ -111,9 +111,12 @@ public final class AiriMindustryPlugin extends Mod {
         final String target = result.targetX() == null
             ? ""
             : String.format(",\"resolvedTarget\":{\"x\":%d,\"y\":%d}", result.targetX(), result.targetY());
+        final String repairTask = result.taskId() == null ? "" : String.format(
+            ",\"taskId\":\"%s\",\"taskStatus\":\"%s\",\"acceptedAtTick\":%d",
+            escapeJson(result.taskId()), escapeJson(result.taskStatus()), result.acceptedAtTick());
         final String json = String.format(
-            "{\"status\":\"%s\",\"reasonCode\":\"%s\",\"message\":\"%s\"%s}",
-            escapeJson(result.status()), escapeJson(result.reasonCode()), escapeJson(result.message()), target
+            "{\"status\":\"%s\",\"reasonCode\":\"%s\",\"message\":\"%s\"%s%s}",
+            escapeJson(result.status()), escapeJson(result.reasonCode()), escapeJson(result.message()), target, repairTask
         );
         final byte[] body = json.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
