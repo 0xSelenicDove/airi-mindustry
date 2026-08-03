@@ -4,6 +4,8 @@ plugins {
 
 group = 'dev.airi'
 version = '0.1.0'
+def mindustryVersion = providers.gradleProperty('mindustryVersion').getOrElse('v159.7')
+def mindustryJar = providers.gradleProperty('mindustryJar').orNull
 
 repositories {
     mavenCentral()
@@ -21,17 +23,102 @@ repositories {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+sourceCompatibility = JavaVersion.VERSION_17
+targetCompatibility = JavaVersion.VERSION_17
+}
+
+// Red, companion-feature acceptance tests live separately from the green
+// production suite until their TDD-defined API is implemented.
+sourceSets {
+    tddTest {
+        java.srcDir 'src/tddTest/java'
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    // Real-world adapter tests stay separate: they require a deterministic
+    // Mindustry world fixture and the future host-authoritative gateway.
+    gatewayTddTest {
+        java.srcDir 'src/gatewayTddTest/java'
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    // RED contract tests for exposing REPAIR_ZONE through the existing action
+    // endpoint. Kept separate until the HTTP/action-router slice is built.
+    repairActionTddTest {
+        java.srcDir 'src/repairActionTddTest/java'
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    // RED contracts for task-status polling and bridge status events. These
+    // remain isolated until the repair-loop observability slice is built.
+    repairStatusTddTest {
+        java.srcDir 'src/repairStatusTddTest/java'
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    // RED contracts for emergency stop, action rate limiting, and local audit
+    // history. These are implemented only after their player-visible policy is approved.
+    actionSafetyTddTest {
+        java.srcDir 'src/actionSafetyTddTest/java'
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
 }
 
 dependencies {
-    compileOnly 'Anuken:Mindustry:v159.7'
+    if (mindustryJar != null) {
+        compileOnly files(mindustryJar)
+        testRuntimeOnly files(mindustryJar)
+    } else {
+        compileOnly "Anuken:Mindustry:${mindustryVersion}"
+        // Action-router contracts instantiate Arc's JSON parser at test runtime.
+        testRuntimeOnly "Anuken:Mindustry:${mindustryVersion}"
+    }
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.0'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.0'
 }
 
 tasks.named('test') {
+    useJUnitPlatform()
+}
+
+tasks.register('tddTest', Test) {
+    description = 'Runs red companion UX acceptance tests during TDD implementation.'
+    group = 'verification'
+    testClassesDirs = sourceSets.tddTest.output.classesDirs
+    classpath = sourceSets.tddTest.runtimeClasspath
+    useJUnitPlatform()
+}
+
+tasks.register('gatewayTddTest', Test) {
+    description = 'Runs red host-authoritative Poly repair gateway integration tests during TDD implementation.'
+    group = 'verification'
+    testClassesDirs = sourceSets.gatewayTddTest.output.classesDirs
+    classpath = sourceSets.gatewayTddTest.runtimeClasspath
+    useJUnitPlatform()
+}
+
+tasks.register('repairActionTddTest', Test) {
+    description = 'Runs red REPAIR_ZONE action-router and bridge contracts during TDD implementation.'
+    group = 'verification'
+    testClassesDirs = sourceSets.repairActionTddTest.output.classesDirs
+    classpath = sourceSets.repairActionTddTest.runtimeClasspath
+    useJUnitPlatform()
+}
+
+tasks.register('repairStatusTddTest', Test) {
+    description = 'Runs red repair task-status endpoint and bridge-event contracts during TDD implementation.'
+    group = 'verification'
+    testClassesDirs = sourceSets.repairStatusTddTest.output.classesDirs
+    classpath = sourceSets.repairStatusTddTest.runtimeClasspath
+    useJUnitPlatform()
+}
+
+tasks.register('actionSafetyTddTest', Test) {
+    description = 'Runs red emergency-stop, rate-limit, and audit-log contracts during TDD implementation.'
+    group = 'verification'
+    testClassesDirs = sourceSets.actionSafetyTddTest.output.classesDirs
+    classpath = sourceSets.actionSafetyTddTest.runtimeClasspath
     useJUnitPlatform()
 }
 

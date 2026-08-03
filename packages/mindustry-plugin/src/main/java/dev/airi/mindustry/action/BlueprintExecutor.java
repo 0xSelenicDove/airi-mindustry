@@ -144,7 +144,11 @@ public final class BlueprintExecutor {
         }
     }
 
-    public record ActionResult(String status, String reasonCode, String message, Integer targetX, Integer targetY) {
+    public record ActionResult(String status, String reasonCode, String message, Integer targetX, Integer targetY,
+                               String taskId, String taskStatus, Long acceptedAtTick) {
+        public ActionResult(String status, String reasonCode, String message, Integer targetX, Integer targetY) {
+            this(status, reasonCode, message, targetX, targetY, null, null, null);
+        }
         static ActionResult accepted(String message, int x, int y) { return new ActionResult("accepted", "ACCEPTED", message, x, y); }
         static ActionResult rejected(String reasonCode, String message) { return new ActionResult("rejected", reasonCode, message, null, null); }
         static ActionResult confirmationRequired(String message, int x, int y) { return new ActionResult("confirmation-required", "CONFIRMATION_REQUIRED", message, x, y); }
